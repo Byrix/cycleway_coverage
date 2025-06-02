@@ -2,6 +2,7 @@
 # === INIT ====================================================================
 # --- Modules ---------------
 import os
+import logging
 import geopandas as gpd 
 
 # --- Input Data ------------
@@ -9,8 +10,8 @@ data_dir = os.path.join(os.getcwd(), "data")
 
 # Reads from root of data directory, if file is within a subdirectory of the data folder
 # given above specify the subdirectory path in the filenames here
-network_filename = "network_bendigo.sqlite"
-region_filename = "greater_bendigo.sqlite"
+network_filename = "network_melbourne.sqlite"
+region_filename = "greater_melbourne.sqlite"
 sas_filename = "SA2_2021_AUST_SHP_GDA2020.zip"
 
 # Desired layers within the files above
@@ -21,12 +22,12 @@ sas_layer = ""
 
 # --- Outputs ---------------
 output_dir = os.path.join(os.getcwd(), "outputs")
-output_filename = "coverage_bendigo.sqlite"
-output_layer = "sa_twos"
+output_filename = "coverage_melbourne.sqlite"
+output_layer = "coverage"
 
 # --- Project vars ----------
 PROJ = 7899  # Desired CRS
-OVERWRITE = False  # Overwrite output if it exists
+OVERWRITE = True  # Overwrite output if it exists
 CLIP_EXTENT = True  # Clip network to region
 
 
@@ -55,7 +56,6 @@ def get_coverage(
     polys: gpd.GeoDataFrame, 
     links: gpd.GeoDataFrame, 
     name: str,
-    mask = None,
     group: str = "SA2_CODE21", 
   ) -> gpd.GeoDataFrame: 
   """
@@ -75,7 +75,7 @@ def get_coverage(
     polys = polys.join(link_lengths, validate="1:1")
     polys = polys.rename(columns={"split_length": "links_length"})
 
-  link_condition_length = links[mask].groupby([group])['split_length'].sum()
+  link_condition_length = links[links[name]].groupby([group])['split_length'].sum()
   polys = polys.join(link_condition_length, validate='1:1')
   polys = polys.rename(columns={"split_length": f"{name}_length"})
 
@@ -90,11 +90,12 @@ def run():
   links = load(network_filename, network_layer)
   sas = load(sas_filename, sas_layer).set_index('SA2_CODE21', drop=False)
 
-  # Preprocessing
-  if CLIP_EXTENT:
-    extent = load(region_filename, region_layer).geometry
-    links = links.clip(extent)
-    del(extent)
+  # Pre-processing 
+  agg_dict = {
+    "is_cycle": "any",
+    "cycleway": "any"
+  }
+  links = links.dissolve(by='osm_id', aggfunc=agg_dict)
 
   # Processing
   split_links = links.overlay(sas)
@@ -102,14 +103,9 @@ def run():
   # NOTE: split_length is NOT equivalent to real-length as geometry has been modified, use for 
   # relative calculations ONLY
 
-
-  sas = get_coverage(sas, split_links, "cycleway", ~split_links['cycleway'].isna())
-  sas = get_coverage(sas, split_links, "bikeable", split_links['is_cycle']==1)
-
-  sas['cycleway_to_bikeable'] = sas['cycleway_coverage'] / sas['bikeable_coverage']
-
-  # Remove any SAs without coverage values 
-  sas = sas.dropna(axis=0, how='all', subset=["cycleway_coverage", "bikeable_coverage"])
+  sas = get_coverage(sas, split_links, "cycleway")
+  # sas = get_coverage(sas, split_links, "is_cycle")
+  # sas['cycleway_to_bikeable'] = sas['cycleway_coverage'] / sas['is_cycle_coverage']
 
   # Save output 
   output_file = os.path.join(output_dir, output_filename)
@@ -117,8 +113,10 @@ def run():
   if not OVERWRITE and os.path.exists(output_file):
     raise FileExistsError("Output {output_file} already exists, ending. To overwrite set OVERWRITE=True")
 
+  if CLIP_EXTENT:
+    extent = load(region_filename, region_layer).geometry[0]
+    sas = sas.clip(extent)
   sas.to_file(output_file, layer=output_layer, driver='SQLite', index=False)
-  # sas.to_file(output_file, driver='SQLite', index=False)
 
 if __name__ == "__main__":
   run()
