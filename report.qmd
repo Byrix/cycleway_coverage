@@ -1,0 +1,83 @@
+---
+title: Cycleway Coverage in Greater Melbourne
+author: Sean Brooker
+date: last-modified
+date-format: "D MMMM YYYY"
+
+format: 
+  html: default
+  pdf:
+    code-fold: false
+    toc: false
+    papersize: 'a4'
+    documentclass: article
+    colorlinks: false
+    geometry:
+      - top=20mm
+      - left=20mm
+      - heightrounded
+---
+
+```{python}
+import os
+import geopandas as gpd 
+import matplotlib.pyplot as plt
+
+PROJ = 7899
+
+sas_file = os.path.join(os.getcwd(), 'data', 'SA2_2021_AUST_SHP_GDA2020.zip')
+links_file = os.path.join(os.getcwd(), 'data', 'network_melbourne.sqlite')
+coverage_file = os.path.join(os.getcwd(), 'outputs', 'coverage_melbourne.sqlite')
+
+coverage = gpd.read_file(coverage_file, layer='coverage').to_crs(PROJ)
+links = gpd.read_file(links_file, layer='links').to_crs(PROJ)
+sas = gpd.read_file(sas_file).to_crs(PROJ)
+
+xmin, ymin, xmax, ymax = links.total_bounds
+```
+
+# Cycleways in Greater Melbourne
+```{python}
+#| column: page
+
+ax = sas.plot(facecolor='#ccd0da', edgecolor='#ccd0da')
+
+links[links['is_cycle']==1].plot(
+  ax=ax, 
+  color='#acb0be', 
+  linewidth=0.5,
+  label = 'Cyclable Link'
+)
+links[~links['cycleway'].isna()].plot(
+  ax=ax, 
+  color='#1e66f5', 
+  label='Dedicated Cycleway', 
+  legend=True, 
+  linewidth=0.5
+)
+
+ax.set_xlim([xmin*0.999, xmax*1.001])
+ax.set_ylim([ymin*0.999, ymax*1.001])
+ax.set_title("Cycleways - Greater Melbourne")
+plt.legend()
+plt.show()
+```
+
+# Cycleway Coverage
+```{python}
+#| column: page
+
+fig, ax = plt.subplots(1,1)
+
+sas.plot(ax=ax, facecolor='#eff1f5', edgecolor='#ccd0da')
+coverage.plot(ax=ax, column='cycleway_coverage', vmin=0, vmax=1, cmap='viridis', legend=True)
+ax.set_xlim([xmin*0.999, xmax*1.001])
+ax.set_ylim([ymin*0.999, ymax*1.001])
+
+plt.show()
+```
+
+## Distribution
+```{python}
+coverage.plot(column='cycleway_coverage', kind='box')
+```
